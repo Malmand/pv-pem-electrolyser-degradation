@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 # =============================================================================
 # simulation_and_figures.py
@@ -39,6 +38,12 @@ plt.rcParams.update({
     'lines.linewidth': 2,
     'lines.markersize': 6
 })
+
+# --- Fix Unicode display for subscripts/superscripts ---
+plt.rcParams['font.family'] = 'DejaVu Sans'   # ships with Matplotlib, supports Unicode
+plt.rcParams['mathtext.fontset'] = 'dejavusans'
+plt.rcParams['axes.unicode_minus'] = False     # ensures minus sign (−) renders correctly
+
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
@@ -994,56 +999,44 @@ class PEMElectrolyzerValidator:
         }
 
     def generate_validation_plots(self, res, save_path=None):
-        fig, axes = plt.subplots(1,3,figsize=(15,4))
-        # Polarization
-        for idx,key in enumerate(['aalborg_60c','aalborg_80c']):
-            exp = self.experimental_data[key]
-            axes[0].plot(
-                exp['current_density'],
-                exp['cell_voltage'], 'o',
-                label=f'exp {key}'
-            )
-            axes[0].plot(
-                exp['current_density'],
-                res[key], 's--',
-                label=f'mod {key}'
-            )
-        axes[0].set_title('Polarization')
-        axes[0].legend()
-        axes[0].grid(True)
+        fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+        ax0, ax1, ax2 = axes
 
-        # Efficiency
+        # --- (a) Polarization Curves ---
+        for key in ['aalborg_60c', 'aalborg_80c']:
+            exp = self.experimental_data[key]
+            ax0.plot(exp['current_density'], exp['cell_voltage'], 'o', label=f'Exp {key}')
+            ax0.plot(exp['current_density'], res[key], 's--', label=f'Model {key}')
+        ax0.set_title("Polarization Curve")
+        ax0.set_xlabel("Current Density (A m⁻²)")
+        ax0.set_ylabel("Cell Voltage (V)")
+        ax0.legend(); ax0.grid(True)
+
+        # --- (b) Efficiency Validation ---
         exp_e = self.experimental_data['efficiency']
         mod_e = res['efficiency']
-        axes[1].plot(
-            exp_e['current_density'],
-            exp_e['voltaic_efficiency'], 'o',
-            label='exp'
-        )
-        axes[1].plot(
-            exp_e['current_density'],
-            mod_e, 's--',
-            label='mod'
-        )
-        axes[1].set_title('Efficiency')
-        axes[1].legend()
-        axes[1].grid(True)
+        ax1.plot(exp_e['current_density'], exp_e['voltaic_efficiency'], 'o', label='Exp')
+        ax1.plot(exp_e['current_density'], mod_e, 's--', label='Model')
+        ax1.set_title("Efficiency Comparison")
+        ax1.set_xlabel("Current Density (A m⁻²)")
+        ax1.set_ylabel("Voltage Efficiency (%)")
+        ax1.legend(); ax1.grid(True)
 
-        # Degradation comparison
-        avg = res['degradation']
+        # --- (c) Degradation Comparison ---
+        avg_model_deg = res['degradation']
         exp70 = self.experimental_data['degradation']['degradation_rate'][1]
-        axes[2].bar(['model'], [avg], label='model')
-        axes[2].axhline(
-            exp70, color='r',
-            label='exp70'
-        )
-        axes[2].set_title('Degradation μV/h')
-        axes[2].legend()
-        axes[2].grid(True)
+        ax2.bar(['Model'], [avg_model_deg], color='C0', label='Model')
+        ax2.axhline(exp70, color='r', linestyle='--', label='Exp 70 °C')
+        ax2.set_title("Degradation Rate")
+        ax2.set_ylabel("Rate (µV h⁻¹)")
+        ax2.legend(); ax2.grid(True)
+
+        # ✅ Add (a)(b)(c) labels
+        add_panel_labels(axes)
 
         plt.tight_layout()
         if save_path:
-            plt.savefig(save_path, dpi=300)
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.show()
         return fig
 
@@ -1113,6 +1106,7 @@ def plot_validation_both_locations(results_b, results_m, engine_b, engine_m,
     axes[2].legend()
     axes[2].grid(True)
 
+    add_panel_labels(axes)
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=300)
@@ -1124,6 +1118,48 @@ def plot_validation_both_locations(results_b, results_m, engine_b, engine_m,
 # All of your existing plotting functions, now updated so that any time we
 # plot or export the model’s degradation rate history (in µV/h), we first
 # multiply by UVH_SCALE to align with the literature data.
+
+import matplotlib.dates as mdates
+
+sns.set_style("whitegrid")
+plt.rcParams.update({
+    "font.family": "DejaVu Sans",
+    "mathtext.fontset": "dejavusans",
+    "axes.unicode_minus": False,
+    "pdf.fonttype": 42,
+    "ps.fonttype": 42,
+    "axes.labelsize": 12,
+    "axes.titlesize": 13,
+    "legend.fontsize": 10,
+    "xtick.labelsize": 11,
+    "ytick.labelsize": 11,
+    "figure.titlesize": 16,
+})
+
+def format_month_axis(ax):
+    """Format datetime x-axis to show months only."""
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    for label in ax.get_xticklabels():
+        label.set_rotation(0)
+    return ax
+
+def add_panel_labels(axes, start_letter='a', dx=-0.12, dy=1.05):
+    """
+    Adds panel labels (a), (b), (c), ... to any list/array of axes.
+    Works for 1×N, N×1, or multi-row layouts.
+    """
+    if not isinstance(axes, (list, np.ndarray)):
+        axes = [axes]
+    for i, ax in enumerate(axes):
+        ax.text(dx, dy, f"({chr(ord(start_letter) + i)})",
+                transform=ax.transAxes,
+                fontsize=14, fontweight='bold',
+                va='top', ha='left',
+                zorder=99,
+                bbox=dict(facecolor='white', edgecolor='none', alpha=0.7, pad=1.5))
+
+
 
 def plot_combined_monthly_pv(pv_df1: pd.DataFrame, pv_df2: pd.DataFrame,
                              labels=('Brighton', 'Muscat'),
@@ -1444,87 +1480,133 @@ def plot_figure1_pv_summary(pv_b: pd.DataFrame, pv_m: pd.DataFrame, save_path: s
     plt.show()
 
 
-def plot_figure2_h2_and_cycles(res_b: pd.DataFrame, res_m: pd.DataFrame, save_path: str = None):
-    fig, axs = plt.subplots(2,2, figsize=(14,10))
+# --------------------------------------------------------------
+# FIGURE 2 – HYDROGEN PRODUCTION & CYCLING
+# --------------------------------------------------------------
+def plot_figure2_h2_and_cycles(res_b, res_m, save_path=None):
+    fig, axs = plt.subplots(2, 2, figsize=(14, 10))
     ax0, ax1, ax2, ax3 = axs.flatten()
-    months = np.arange(1,13)
 
-    # 1) Monthly H₂
+    # (a) Monthly H₂
+    months = np.arange(1, 13)
     m_b = res_b.groupby(res_b.index.month)['Total_H2_kg'].sum()
     m_m = res_m.groupby(res_m.index.month)['Total_H2_kg'].sum()
-    ax0.bar(months-0.2, m_b, 0.4, label='Brighton')
-    ax0.bar(months+0.2, m_m, 0.4, label='Muscat')
-    ax0.set_xticks(months); ax0.set_title("Monthly H₂ Production (kg)")
+    ax0.bar(months - 0.2, m_b, 0.4, label='Brighton', color='C0')
+    ax0.bar(months + 0.2, m_m, 0.4, label='Muscat', color='C1')
+    ax0.set_xticks(months)
+    ax0.set_title("Monthly Hydrogen Production")
+    ax0.set_xlabel("Month")
+    ax0.set_ylabel("H₂ Produced (kg)")
     ax0.legend(); ax0.grid(alpha=0.3)
 
-    # 2) Avg daily cycles
+    # (b) Average daily cycles
     dc_b = calculate_daily_cycles_hourly_refined(res_b['PV_Power'])
     dc_m = calculate_daily_cycles_hourly_refined(res_m['PV_Power'])
-    ax1.bar([0,1],[dc_b.mean(), dc_m.mean()],0.6, color=['C0','C1'])
-    ax1.set_xticks([0,1]); ax1.set_xticklabels(['Brighton','Muscat'])
-    ax1.set_title("Average Daily Cycles"); ax1.grid(alpha=0.3)
+    ax1.bar(['Brighton', 'Muscat'], [dc_b.mean(), dc_m.mean()],
+            color=['C0', 'C1'], alpha=0.7)
+    ax1.set_title("Average Daily Cycles")
+    ax1.set_ylabel("Cycles per Day")
+    ax1.grid(alpha=0.3)
 
-    # 3) Cumulative H₂
+    # (c) Cumulative H₂
     cum_b = res_b['Total_H2_kg'].cumsum()
     cum_m = res_m['Total_H2_kg'].cumsum()
-    ax2.plot(cum_b.index, cum_b, label='Brighton')
-    ax2.plot(cum_m.index, cum_m, label='Muscat')
-    ax2.set_title("Cumulative H₂ Production"); ax2.legend(); ax2.grid(alpha=0.3)
+    ax2.plot(cum_b.index, cum_b, label='Brighton', color='C0')
+    ax2.plot(cum_m.index, cum_m, label='Muscat', color='C1')
+    ax2.set_title("Cumulative Hydrogen Production")
+    ax2.set_xlabel("Month"); ax2.set_ylabel("Cumulative H₂ (kg)")
+    format_month_axis(ax2)
+    ax2.legend(); ax2.grid(alpha=0.3)
 
-    # 4) Yield
+    # (d) Yield
     pv_b_tot = res_b['PV_Power'].sum()/1000
     pv_m_tot = res_m['PV_Power'].sum()/1000
     h2_b_tot = res_b['Total_H2_kg'].sum()
     h2_m_tot = res_m['Total_H2_kg'].sum()
-    y_b = pv_b_tot / h2_b_tot; y_m = pv_m_tot / h2_m_tot
-    ax3.bar(['Brighton','Muscat'], [y_b, y_m], color=['C0','C1'])
-    ax3.set_title("Yield (kWh PV / kg H₂)"); ax3.grid(alpha=0.3)
+    yield_b = pv_b_tot / h2_b_tot
+    yield_m = pv_m_tot / h2_m_tot
+    ax3.bar(['Brighton', 'Muscat'], [yield_b, yield_m],
+            color=['C0', 'C1'], alpha=0.8)
+    ax3.set_title("Energy Yield (kWh PV per kg H₂)")
+    ax3.set_ylabel("kWh/kg H₂")
+    ax3.grid(alpha=0.3)
 
-    fig.suptitle("Figure 2: Hydrogen Production & Cycling", fontsize=16)
-    if save_path: fig.savefig(save_path, dpi=300, bbox_inches='tight')
+    # Label panels
+    for i, ax in enumerate(axs.flatten()):
+        ax.text(-0.12, 1.05, f"({chr(97+i)})", transform=ax.transAxes,
+                fontsize=14, fontweight='bold', va='top', ha='left')
+
+    fig.suptitle("Figure 2 – Hydrogen Production and Cycling", fontsize=16, fontweight='bold')
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    if save_path: plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.show()
 
 
-def plot_figure3_efficiency_and_loading(res_b: pd.DataFrame, res_m: pd.DataFrame, save_path: str = None):
-    fig, axs = plt.subplots(2,2, figsize=(14,10))
+
+# --------------------------------------------------------------
+# FIGURE 3 – EFFICIENCY & LOADING + DIURNAL PATTERN
+# --------------------------------------------------------------
+def plot_figure3_efficiency_and_loading(res_b, res_m, save_path=None):
+    fig, axs = plt.subplots(2, 2, figsize=(14, 10))
     ax0, ax1, ax2, ax3 = axs.flatten()
 
-    # Efficiency 7-day rolling
-    for df, label in [(res_b,'Brighton'), (res_m,'Muscat')]:
+    # (a) 7-day rolling efficiency
+    for df, label, color in [(res_b,'Brighton','C0'),(res_m,'Muscat','C1')]:
         op = df[df['Total_Current'] > 1]
-        ax0.plot(op['Efficiency'].rolling(24*7, center=True).mean(), label=label)
-    ax0.set_title("7-day Rolling Efficiency (%)"); ax0.legend(); ax0.grid(alpha=0.3)
+        ax0.plot(op['Efficiency'].rolling(24*7, center=True).mean(),
+                 label=label, color=color)
+    ax0.set_title("7-Day Rolling Efficiency")
+    ax0.set_xlabel("Month"); ax0.set_ylabel("Efficiency (%)")
+    format_month_axis(ax0)
+    ax0.legend(); ax0.grid(alpha=0.3)
 
-    # Loading histogram
-    for df,label in [(res_b,'Brighton'), (res_m,'Muscat')]:
+    # (b) Loading histogram
+    for df, label, color in [(res_b,'Brighton','C0'),(res_m,'Muscat','C1')]:
         ld = df[df['Total_Current']>1]['PV_Power']/SimulationConfig.NOMINAL_POWER*100
-        ax1.hist(ld, bins=30, alpha=0.6, label=label)
-    ax1.set_title("Electrolyzer Loading (%)"); ax1.legend(); ax1.grid(alpha=0.3)
+        ax1.hist(ld, bins=40, alpha=0.6, label=label, color=color)
+    ax1.set_title("Electrolyzer Loading Distribution")
+    ax1.set_xlabel("Loading (%)"); ax1.set_ylabel("Frequency")
+    ax1.legend(); ax1.grid(alpha=0.3)
 
-    # Efficiency vs Temp
-    for df,label in [(res_b,'Brighton'), (res_m,'Muscat')]:
+    # (c) Efficiency vs Temperature
+    for df, label, color in [(res_b,'Brighton','C0'),(res_m,'Muscat','C1')]:
         op = df[df['Total_Current']>1]
         bins = np.linspace(op['Ely_Temp'].min(), op['Ely_Temp'].max(), 10)
-        centers, means = [], []
-        for i in range(len(bins)-1):
-            m = (op['Ely_Temp'] >= bins[i]) & (op['Ely_Temp'] < bins[i+1])
-            if m.any():
-                centers.append((bins[i]+bins[i+1])/2)
-                means.append(op.loc[m, 'Efficiency'].mean())
-        ax2.plot(centers, means, marker='o', label=label)
-    ax2.set_title("Efficiency vs Temperature"); ax2.set_xlabel("°C"); ax2.legend(); ax2.grid(alpha=0.3)
+        centers = 0.5*(bins[:-1]+bins[1:])
+        means = [op.loc[(op['Ely_Temp']>=b0)&(op['Ely_Temp']<b1),'Efficiency'].mean()
+                 for b0,b1 in zip(bins[:-1],bins[1:])]
+        ax2.plot(centers, means, 'o-', label=label, color=color)
+    ax2.set_title("Efficiency vs Operating Temperature")
+    ax2.set_xlabel("Temperature (°C)"); ax2.set_ylabel("Efficiency (%)")
+    ax2.legend(); ax2.grid(alpha=0.3)
 
-    # Diurnal pattern
-    h2_hr = res_b.groupby(res_b.index.hour)['Total_H2_kg'].mean()
-    pv_hr = res_b.groupby(res_b.index.hour)['PV_Power'].mean()/1000
-    ax3.plot(h2_hr, label='H₂ Brighton')
+    # (d) Diurnal pattern (+3 h shift for Muscat)
+    h_idx = np.arange(24)
+    h2_b = res_b.groupby(res_b.index.hour)['Total_H2_kg'].mean().reindex(h_idx)
+    pv_b = res_b.groupby(res_b.index.hour)['PV_Power'].mean().div(1e3).reindex(h_idx)
+    h2_m = res_m.groupby(((res_m.index.hour + 3) % 24))['Total_H2_kg'].mean().reindex(h_idx)
+    pv_m = res_m.groupby(((res_m.index.hour + 3) % 24))['PV_Power'].mean().div(1e3).reindex(h_idx)
+
+    ax3.plot(h_idx, h2_b, label='H₂ Brighton', color='C0')
+    ax3.plot(h_idx, h2_m, label='H₂ Muscat', color='C1')
     ax3_t = ax3.twinx()
-    ax3_t.plot(pv_hr, '--', label='PV Brighton (kW)')
-    ax3.set_title("Diurnal Pattern Brighton")
-    ax3.legend(loc='upper left'); ax3_t.legend(loc='upper right'); ax3.grid(alpha=0.3)
+    ax3_t.plot(h_idx, pv_b, '--', label='PV Brighton (kW)', color='C0')
+    ax3_t.plot(h_idx, pv_m, '--', label='PV Muscat (kW)', color='C1')
+    ax3.set_xlim(0, 23); ax3.set_xticks(range(0,24,2))
+    ax3.set_title("Average Diurnal Pattern")
+    ax3.set_xlabel("Hour of Day (h)")
+    ax3.set_ylabel("H₂ Production (kg h⁻¹)")
+    ax3_t.set_ylabel("PV Power (kW)")
+    ax3.legend(loc='upper left'); ax3_t.legend(loc='upper right')
+    ax3.grid(alpha=0.3)
 
-    fig.suptitle("Figure 3: Efficiency & Loading Analysis", fontsize=16)
-    if save_path: fig.savefig(save_path, dpi=300, bbox_inches='tight')
+    for i, ax in enumerate(axs.flatten()):
+        ax.text(-0.12, 1.05, f"({chr(97+i)})", transform=ax.transAxes,
+                fontsize=14, fontweight='bold', va='top', ha='left')
+
+    fig.suptitle("Figure 3 – Efficiency and Loading Metrics", fontsize=16, fontweight='bold')
+    plt.tight_layout(rect=[0,0,1,0.96])
+    if save_path: plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.show()
 
 
@@ -1569,33 +1651,56 @@ def plot_degradation_bmc(res_b, engine_b, res_m, engine_m, res_const, engine_con
     plt.show()
 
     
+# --------------------------------------------------------------
+# FIGURE 4 – DEGRADATION METRICS (SCALED)
+# --------------------------------------------------------------
 def plot_figure4_degradation(res_b, res_m, engine_b, engine_m, save_path=None):
-    fig, axs = plt.subplots(2,2, figsize=(14,10))
+    fig, axs = plt.subplots(2, 2, figsize=(14, 10))
     ax0, ax1, ax2, ax3 = axs.flatten()
 
-    # (1) & (2) Membrane & catalyst unchanged...
-    ax0.plot(res_b['Mem_Deg (%)'], label='Brighton')
-    ax0.plot(res_m['Mem_Deg (%)'], label='Muscat')
-    ax0.set_title("Membrane Degradation (%)"); ax0.legend(); ax0.grid(True)
+    # (a) Membrane degradation %
+    ax0.plot(res_b.index, res_b['Mem_Deg (%)'], label='Brighton', color='C0')
+    ax0.plot(res_m.index, res_m['Mem_Deg (%)'], label='Muscat', color='C1')
+    ax0.set_title("Membrane Degradation")
+    ax0.set_xlabel("Month"); ax0.set_ylabel("Degradation (%)")
+    format_month_axis(ax0)
+    ax0.legend(); ax0.grid(alpha=0.3)
 
-    ax1.plot(res_b['Cat_Deg (%)'], label='Brighton')
-    ax1.plot(res_m['Cat_Deg (%)'], label='Muscat')
-    ax1.set_title("Catalyst Degradation (%)"); ax1.legend(); ax1.grid(True)
+    # (b) Catalyst degradation %
+    ax1.plot(res_b.index, res_b['Cat_Deg (%)'], label='Brighton', color='C0')
+    ax1.plot(res_m.index, res_m['Cat_Deg (%)'], label='Muscat', color='C1')
+    ax1.set_title("Catalyst Degradation")
+    ax1.set_xlabel("Month"); ax1.set_ylabel("Degradation (%)")
+    format_month_axis(ax1)
+    ax1.legend(); ax1.grid(alpha=0.3)
 
-    # (3) instantaneous µV/h (scaled)
-    plot_scaled_instantaneous_degradation(engine_b, res_b.index, 'Brighton', ax2)
-    plot_scaled_instantaneous_degradation(engine_m, res_m.index, 'Muscat',   ax2)
-    ax2.set_title("Instantaneous Degradation Rate")
+    # (c) Instantaneous µV h⁻¹ (scaled)
+    deg_b = np.array(engine_b.degradation.degradation_rate_history) * UVH_SCALE
+    deg_m = np.array(engine_m.degradation.degradation_rate_history) * UVH_SCALE
+    ax2.plot(res_b.index, deg_b, label='Brighton', color='C0')
+    ax2.plot(res_m.index, deg_m, label='Muscat', color='C1')
+    ax2.set_title("Instantaneous Degradation Rate (µV h⁻¹)")
+    ax2.set_xlabel("Month"); ax2.set_ylabel("Degradation Rate (µV h⁻¹)")
+    format_month_axis(ax2)
+    ax2.legend(); ax2.grid(alpha=0.3)
 
-    # (4) cumulative ΔR (scaled)
-    plot_scaled_cumulative_degradation(engine_b, res_b.index, 'Brighton', ax3)
-    plot_scaled_cumulative_degradation(engine_m, res_m.index, 'Muscat',   ax3)
+    # (d) Cumulative ΔR (scaled)
+    cum_b = np.cumsum(deg_b)
+    cum_m = np.cumsum(deg_m)
+    ax3.plot(res_b.index, cum_b, label='Brighton', color='C0')
+    ax3.plot(res_m.index, cum_m, label='Muscat', color='C1')
     ax3.set_title("Cumulative ΔR")
+    ax3.set_xlabel("Month"); ax3.set_ylabel("ΔR (µΩ)")
+    format_month_axis(ax3)
+    ax3.legend(); ax3.grid(alpha=0.3)
 
-    fig.suptitle("Figure 4: Degradation Metrics (Scaled)", fontsize=16)
-    plt.tight_layout(rect=[0,0,1,0.96])
-    if save_path:
-        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+    for i, ax in enumerate(axs.flatten()):
+        ax.text(-0.12, 1.05, f"({chr(97+i)})", transform=ax.transAxes,
+                fontsize=14, fontweight='bold', va='top', ha='left')
+
+    fig.suptitle("Figure 4 – Degradation Metrics (Scaled)", fontsize=16, fontweight='bold')
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    if save_path: plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.show()
 
 
@@ -1713,6 +1818,48 @@ def main():
         engine_b, engine_m = SimulationEngine(df_b), SimulationEngine(df_m)
         res_b, res_m = engine_b.run(), engine_m.run()
         log_event("INFO", "Electrolyser simulations completed")
+        
+        # --------------------------------------------------------------
+        # === MODEL VALIDATION (Numerical Metrics Only) ===
+        # --------------------------------------------------------------
+        print("\n================= MODEL VALIDATION SUMMARY =================")
+
+        # Initialize validator
+        validator = PEMElectrolyzerValidator()
+
+        # --- Polarization @60°C & 80°C ---
+        try:
+            interp_60 = validator.validate_polarization_curves(res_b, 'aalborg_60c')
+            interp_80 = validator.validate_polarization_curves(res_b, 'aalborg_80c')
+        except Exception as e:
+            print("Polarization validation skipped:", e)
+
+        # --- Efficiency ---
+        try:
+            _ = validator.validate_efficiency(res_b)
+        except Exception as e:
+            print("Efficiency validation skipped:", e)
+
+        # --- Degradation ---
+        try:
+            avg_deg = validator.validate_degradation(engine_b.degradation)
+        except Exception as e:
+            print("Degradation validation skipped:", e)
+
+        # --- Cross-validation robustness check ---
+        cv_scores = validator.cross_validate_model(None, validator.experimental_data['aalborg_80c'])
+
+        # --- Print metrics summary ---
+        print("\n--- VALIDATION METRICS (SUMMARY) ---")
+        for key, val in validator.validation_metrics.items():
+            print(f"{key}: {val}")
+        print("Cross-validation:", cv_scores)
+
+        # --- Optional: save to CSV ---
+        pd.DataFrame.from_dict(validator.validation_metrics, orient='index').to_csv("validation_metrics.csv")
+        print("Validation metrics saved to validation_metrics.csv")
+        print("=============================================================")
+
 
         # --- Apply scaling ---
         if AUTO_SCALE:
@@ -1792,4 +1939,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
