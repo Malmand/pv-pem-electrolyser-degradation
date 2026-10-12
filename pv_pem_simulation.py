@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # =============================================================================
-# simulation_and_figures.py
+# pv_pem_simulation.py
 #
 # Modeling Solar Intermittency Effects on PEM Electrolyser Degradation:
 # Oman vs UK Conditions
@@ -1731,9 +1731,21 @@ def main():
 
     log_event("START", "Beginning PV–Electrolyzer simulation analysis")
 
-    # File paths (update to your real paths)
-    brighton_file = "C:/Users/Mohamed Al Mandhari/Downloads/GHI_Hourly_2019_FULL_DATA_NREL.xlsx"
-    muscat_file   = "C:/Users/Mohamed Al Mandhari/Downloads/tmy_23.249_56.448_2005_2023 (1).csv"
+    # Input weather files and output folder (see README for where to obtain the data).
+    import argparse
+    here = os.path.dirname(os.path.abspath(__file__))
+    parser = argparse.ArgumentParser(description="PV-PEM electrolyser degradation simulation")
+    parser.add_argument("--brighton", default=os.path.join(here, "data", "brighton_ghi_hourly_2019.xlsx"),
+                        help="Hourly GHI for Brighton, UK (NREL NSRDB export, .xlsx)")
+    parser.add_argument("--muscat", default=os.path.join(here, "data", "muscat_tmy_2005_2023.csv"),
+                        help="PVGIS TMY for Muscat, Oman (23.249 N, 56.448 E), .csv")
+    parser.add_argument("--out", default=os.path.join(here, "results"),
+                        help="Folder for CSV outputs and figures")
+    args = parser.parse_args()
+    brighton_file = os.path.abspath(args.brighton)
+    muscat_file = os.path.abspath(args.muscat)
+    os.makedirs(args.out, exist_ok=True)
+    os.chdir(args.out)   # all CSVs and figures are written here
 
     # Ensure files exist
     for path, name in [(brighton_file, "Brighton"), (muscat_file, "Muscat")]:
