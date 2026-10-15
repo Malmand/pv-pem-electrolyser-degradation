@@ -110,7 +110,7 @@ def ohmic_overpotential(i, T, t_mem, sigma0, Ea_sigma,
                         k_sigma, t, cycles, k_mech):
     sigma_chem = sigma0 * np.exp(-Ea_sigma / (R_const * T)) \
                  * np.exp(-k_sigma * t)
-    sigma_mech = k_mech * cycles
+    sigma_mech = k_mech * cycles  # conductivity lost per start-stop cycle
     sigma_total = max(1e-6, sigma_chem - sigma_mech)
     return i * t_mem / sigma_total, sigma_total
 
@@ -125,7 +125,7 @@ def voltage_degradation(t, M_H2_cum, k_t, k_H2, k_v):
 
 def faraday_efficiency(i, t, k_cross):
     f_cross = k_cross * t
-    eff = 96.5 * (np.exp(0.09 / i) - 75.5 / (i ** 2)) * (1 - f_cross)
+    eff = 96.5 * (np.exp(0.09 / i) - 75.5 / (i ** 2)) * (1 - f_cross)  # empirical fit; falls at low current
     return np.clip(eff, 0, 100), f_cross
 
 def hydrogen_production(i, A, nF):
@@ -168,7 +168,7 @@ class ComprehensiveDegradationTracker:
     def update(self, V_cell: float, I: float, T: float,
                dt: float) -> dict:
         self.operating_time += dt
-        temp_factor = np.exp((T - 60) / 10)
+        temp_factor = np.exp((T - 60) / 10)  # faster catalyst loss above 60 degC
         self.catalyst_factor_anode *= np.exp(
             -self.k_cat_anode * temp_factor * dt)
         self.catalyst_factor_cathode *= np.exp(
@@ -177,7 +177,7 @@ class ComprehensiveDegradationTracker:
         self.membrane_thickness = max(
             self.membrane_thickness
             - self.k_mem * (I / SimulationConfig.REF_CURRENT) * dt,
-            0.5 * SimulationConfig.INITIAL_MEM_THICKNESS
+            0.5 * SimulationConfig.INITIAL_MEM_THICKNESS  # floor: half the initial thickness
         )
 
         self.R_int += self.k_int \
@@ -237,7 +237,7 @@ class PEMElectrolyserRefined:
             self.nominal_power * config.MIN_LOAD
         )
         # interpolation tables
-        self.T_data = np.array([40, 60, 80])
+        self.T_data = np.array([40, 60, 80])  # degC; kinetic parameters interpolated in T
         self.alpha_anode_table = [0.42933, 0.44182, 0.45347]
         self.alpha_cathode_table = [0.30782, 0.32602, 0.3429]
         self.j0_anode_table = [0.0016912, 0.0019873, 0.0023465]
@@ -261,7 +261,7 @@ class PEMElectrolyserRefined:
         )
         cond_S_per_m = np.interp(
             T_C, self.T_data, self.cond_table
-        ) * 100
+        ) * 100  # S/cm -> S/m
         d_mem = self.deg.get_membrane_thickness()
         R_mem = d_mem / (cond_S_per_m * self.A)
         self.R_ohm = (
@@ -289,7 +289,7 @@ class PEMElectrolyserRefined:
         η_an = (
             self.cfg.R * T_K
             / (self.alpha_anode * self.cfg.F)
-        ) * np.arcsinh(i / (2 * self.j0_anode * 1e4))
+        ) * np.arcsinh(i / (2 * self.j0_anode * 1e4))  # j0 in A/cm2 -> A/m2
         η_ca = (
             self.cfg.R * T_K
             / (self.alpha_cathode * self.cfg.F)
@@ -328,7 +328,7 @@ class PEMElectrolyserRefined:
 
     def operate(self, power, T_amb, dt=1.0):
         power = np.clip(power, 0, None)
-        if power < self.min_power:
+        if power < self.min_power:  # below minimum load: stack off
             self.T = max(T_amb, self.cfg.T_OPERATING_MIN)
             return (0, 0, 0, self.open_circuit_voltage(),
                     self.T, 0, 0, 0, 0)
@@ -343,14 +343,14 @@ class PEMElectrolyserRefined:
             )
         sol = root_scalar(
             f,
-            bracket=[1e-3, 3e4 * self.A],
+            bracket=[1e-3, 3e4 * self.A],  # up to 3 A/cm2
             method='brentq'
         )
         I = sol.root if sol.converged \
-            else power / (self.n_cells * 1.8)
+            else power / (self.n_cells * 1.8)  # fallback: assume 1.8 V per cell
         Vc = self.cell_voltage(I)
 
-        Q_gen = I * (Vc - 1.48) * self.n_cells
+        Q_gen = I * (Vc - 1.48) * self.n_cells  # heat above the thermoneutral voltage
         Q_loss = self.heat_transfer_coeff * (self.T - T_amb)
         ΔT = (
             (Q_gen - Q_loss)
@@ -358,7 +358,7 @@ class PEMElectrolyserRefined:
             / self.thermal_mass
         )
         self.T = np.clip(
-            self.T + np.clip(ΔT, -5, 5),
+            self.T + np.clip(ΔT, -5, 5),  # at most 5 K per time step
             self.cfg.T_OPERATING_MIN,
             self.cfg.T_OPERATING_MAX
         )
@@ -662,7 +662,7 @@ def calculate_daily_cycles_hourly_refined(
     ) -> pd.Series:
     daily_cycles = {}
     for day, group in pv_power.groupby(pv_power.index.date):
-        on_hours = group[group > 0] / 1e6
+        on_hours = group[group > 0] / 1e6  # W -> MW
         if on_hours.empty:
             daily_cycles[pd.Timestamp(day)] = 0
             continue
@@ -670,6 +670,7 @@ def calculate_daily_cycles_hourly_refined(
         transitions = sum(
             1
             for i in range(1, len(on_hours))
+            # power halves within an hour: one more cycle
             if on_hours.iloc[i]
                < 0.5 * on_hours.iloc[i - 1]
         )
@@ -678,7 +679,7 @@ def calculate_daily_cycles_hourly_refined(
             if on_hours.mean() > 0 else 0
         )
         intra = min(
-            round(scale * max(0, CV - CV_min)),
+            round(scale * max(0, CV - CV_min)),  # extra cycles from intraday variability
             10
         )
         daily_cycles[pd.Timestamp(day)] = (
